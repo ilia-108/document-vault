@@ -17,7 +17,13 @@
     "test:unit": "vitest run",
     "test:mock:contract": "node --test mock/contract.test.cjs",
     "test:ui": "playwright test",
-    "test:a11y": "playwright test tests/ui/accessibility.spec.ts"
+    "test:a11y": "playwright test tests/ui/accessibility.spec.ts",
+    "test:server": "go test ./server/...",
+    "lint:server": "go vet ./server/...",
+    "dev:server": "node scripts/dev.cjs --server",
+    "openbao:start": "node scripts/openbao-start.cjs",
+    "openbao:setup": "node scripts/openbao-setup.cjs",
+    "build:server": "yarn build && node scripts/apply-server-config.cjs"
   },
   "dependencies": {
     "@reduxjs/toolkit": "2.12.0",

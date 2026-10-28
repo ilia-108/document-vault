@@ -1,0 +1,28 @@
+[Unit]
+Description=Document Vault API
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=document-vault
+Group=document-vault
+WorkingDirectory=/var/lib/document-vault
+EnvironmentFile=/etc/document-vault/server.env
+ExecStart=/opt/document-vault/bin/document-vault
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+StateDirectory=document-vault
+StateDirectoryMode=0700
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/document-vault
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target

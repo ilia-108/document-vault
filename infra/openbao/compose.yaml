@@ -1,0 +1,13 @@
+services:
+  openbao:
+    image: quay.io/openbao/openbao:2.7.2
+    command: server -config=/etc/openbao/config.hcl
+    ports:
+      - '127.0.0.1:8200:8200'
+    volumes:
+      - ./config.hcl:/etc/openbao/config.hcl:ro
+      - openbao-data:/openbao/data
+    cap_add:
+      - IPC_LOCK
+volumes:
+  openbao-data:

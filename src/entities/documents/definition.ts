@@ -1,6 +1,7 @@
 import type { EntityDefinition } from '@/explorer/types';
 import { documentAdapter } from './adapter';
 import { DocumentPanel } from './DocumentPanel';
+import { DocumentActions } from './DocumentActions';
 
 export const documents: EntityDefinition = {
   id: 'documents',
@@ -49,4 +50,5 @@ export const documents: EntityDefinition = {
   ],
   adapter: documentAdapter,
   Details: DocumentPanel,
+  Actions: DocumentActions,
 };

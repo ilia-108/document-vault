@@ -19,19 +19,26 @@ function apiUrl(path: string) {
 }
 async function request(
   path: string,
-  options: { signal?: AbortSignal; body?: unknown } = {}
+  options: { signal?: AbortSignal; body?: unknown; method?: string } = {}
 ) {
   const response = await fetch(apiUrl(path), {
-    method: options.body === undefined ? 'GET' : 'POST',
+    method: options.method || (options.body === undefined ? 'GET' : 'POST'),
     headers:
-      options.body === undefined
+      options.body === undefined || options.body instanceof FormData
         ? undefined
         : { 'Content-Type': 'application/json' },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    body:
+      options.body === undefined
+        ? undefined
+        : options.body instanceof FormData
+          ? options.body
+          : JSON.stringify(options.body),
     signal: options.signal,
     credentials: 'same-origin',
   });
   if (!response.ok) {
+    if (response.status === 401 && !path.startsWith('auth/'))
+      window.dispatchEvent(new Event('document-vault:session-expired'));
     const error = await response.json().catch(() => null);
     throw new ApiError(
       response.status,
@@ -43,7 +50,7 @@ async function request(
 export async function requestJson<T>(
   path: string,
   decode: (data: unknown) => T,
-  options: { signal?: AbortSignal; body?: unknown } = {}
+  options: { signal?: AbortSignal; body?: unknown; method?: string } = {}
 ): Promise<T> {
   const response = await request(path, options);
   const payload: unknown = await response.json();

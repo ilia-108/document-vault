@@ -18,6 +18,7 @@ import type { DetailProps } from '@/explorer/types';
 import { getVersionContent } from './api';
 import { verifyBytes } from './checksum';
 import type { DocumentVersion } from './types';
+import { UploadVersionButton } from './DocumentActions';
 
 export function DocumentPanel({ recordId }: DetailProps) {
   const { versionId } = useParams();
@@ -108,8 +109,30 @@ export function DocumentPanel({ recordId }: DetailProps) {
                 Current document title: {state.document.title}
               </p>
             )}
+          {version.encryption && (
+            <p className='encryption-state'>
+              <Icon name='shield' size={14} />
+              {version.encryption.enabled
+                ? 'Encrypted at rest · AES-256-GCM · OpenBao'
+                : 'Stored without file encryption'}
+              {state.document?.encryptionRequired && !version.encryption.enabled
+                ? ' · Newer versions require encryption'
+                : ''}
+            </p>
+          )}
           <VersionContents key={version.versionId} version={version} />
         </>
+      )}
+      {state.document && (
+        <div className='version-upload'>
+          <UploadVersionButton
+            document={state.document}
+            onCreated={created => {
+              void dispatch(loadHistory({ documentId: recordId }));
+              navigate(`/documents/${recordId}/versions/${created.versionId}`);
+            }}
+          />
+        </div>
       )}
       <section className='history-section'>
         <div className='section-heading'>

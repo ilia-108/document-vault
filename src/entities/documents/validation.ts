@@ -23,6 +23,11 @@ export function parseVersion(value: unknown): DocumentVersion {
       (typeof version.versionName !== 'string' ||
         !version.versionName.trim() ||
         version.versionName.length > 200)) ||
+    (version.encryption !== undefined &&
+      (typeof object(version.encryption).enabled !== 'boolean' ||
+        (object(version.encryption).enabled === true &&
+          (object(version.encryption).algorithm !== 'AES-256-GCM' ||
+            object(version.encryption).provider !== 'openbao-transit')))) ||
     !Number.isFinite(version.capturedAt) ||
     typeof file.name !== 'string' ||
     typeof file.mediaType !== 'string' ||
@@ -48,6 +53,8 @@ export function parseDocument(value: unknown): DocumentSummary {
     !['documentId', 'title', 'owner', 'latestVersionId'].every(
       key => typeof document[key] === 'string'
     ) ||
+    (document.encryptionRequired !== undefined &&
+      typeof document.encryptionRequired !== 'boolean') ||
     !strings(document.tags) ||
     !Number.isSafeInteger(document.versionCount) ||
     Number(document.versionCount) < 1 ||

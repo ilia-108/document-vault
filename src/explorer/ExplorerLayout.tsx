@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   useLocation,
   useNavigate,
@@ -23,6 +24,8 @@ import type {
   SearchQuery,
 } from './types';
 import { RecordTable } from './RecordTable';
+import { AccountControl } from '@/auth/AccountControl';
+import { useAuth } from '@/auth/context';
 
 const operatorLabels = {
   equals: 'is exactly',
@@ -83,9 +86,11 @@ function ExplorerWorkspace({
   entity: EntityDefinition;
   schema: EntitySchema;
 }) {
+  const { user } = useAuth();
+  const preferenceScope = user ? `${user.id}:${entity.id}` : entity.id;
   const fields = schema.fields.map(field => field.name);
   const [preferences, setPreferences] = useState(() =>
-    readPreferences(entity, fields, safeStorage())
+    readPreferences({ ...entity, id: preferenceScope }, fields, safeStorage())
   );
   const [draft, setDraft] = useState(preferences.query.text);
   const [feedback, setFeedback] = useState('');
@@ -133,13 +138,13 @@ function ExplorerWorkspace({
   useEffect(() => {
     try {
       localStorage.setItem(
-        preferenceKey(entity.id),
+        preferenceKey(preferenceScope),
         JSON.stringify(preferences)
       );
     } catch {
       /* The current session remains usable without browser storage. */
     }
-  }, [entity.id, preferences]);
+  }, [preferenceScope, preferences]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
@@ -252,9 +257,7 @@ function ExplorerWorkspace({
               >
                 <Icon name={theme === 'light' ? 'moon' : 'sun'} />
               </button>
-              <span className='avatar' aria-label='Personal workspace'>
-                IG
-              </span>
+              <AccountControl />
             </div>
           </header>
           <div className='page-content'>
@@ -266,10 +269,17 @@ function ExplorerWorkspace({
                 </h1>
                 <p>{entity.description}</p>
               </div>
-              <button className='button' onClick={shareSearch}>
-                <Icon name='link' />
-                Share search
-              </button>
+              <div className='heading-actions'>
+                {entity.Actions && (
+                  <entity.Actions
+                    onChanged={() => setReload(value => value + 1)}
+                  />
+                )}{' '}
+                <button className='button' onClick={shareSearch}>
+                  <Icon name='link' />
+                  Share search
+                </button>
+              </div>
             </section>
             <div className='summary-strip'>
               <div>
@@ -543,13 +553,24 @@ export function DetailShell({
     const previous = document.activeElement;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    const layer = dialog.current?.closest('.modal-layer');
+    const background = Array.from(
+      document.querySelectorAll<HTMLElement>('.app-frame, .modal-layer')
+    ).filter(element => element !== layer);
+    const previousInert = background.map(element => element.inert);
+    background.forEach(element => {
+      element.inert = true;
+    });
     dialog.current?.focus();
     return () => {
       document.body.style.overflow = previousOverflow;
+      background.forEach((element, index) => {
+        element.inert = previousInert[index];
+      });
       if (previous instanceof HTMLElement) previous.focus();
     };
   }, []);
-  return (
+  return createPortal(
     <div className='modal-layer'>
       <button
         className='modal-backdrop'
@@ -565,8 +586,12 @@ export function DetailShell({
         aria-modal='true'
         aria-label={`${title} details`}
         onKeyDown={event => {
-          if (event.key === 'Escape') onClose();
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            onClose();
+          }
           if (event.key === 'Tab') {
+            event.stopPropagation();
             const focusable = dialog.current?.querySelectorAll<HTMLElement>(
               'button:not(:disabled), a[href], input:not(:disabled):not([tabindex="-1"]), select, textarea, iframe, [tabindex="0"]'
             );
@@ -600,7 +625,8 @@ export function DetailShell({
         </button>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

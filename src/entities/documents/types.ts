@@ -3,6 +3,7 @@ export interface DocumentVersion {
   documentId: string;
   versionNumber: number;
   versionName?: string;
+  encryption?: { enabled: boolean; algorithm?: string; provider?: string };
   capturedAt: number;
   capturedBy: string;
   file: { name: string; mediaType: string; sizeBytes: number };
@@ -17,6 +18,7 @@ export interface DocumentVersion {
 }
 export interface DocumentSummary {
   documentId: string;
+  encryptionRequired?: boolean;
   title: string;
   owner: string;
   tags: string[];

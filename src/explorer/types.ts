@@ -61,6 +61,7 @@ export interface EntityDefinition {
   collections: { label: string; filters: SearchFilter[] }[];
   adapter: EntityAdapter;
   Details: ComponentType<DetailProps>;
+  Actions?: ComponentType<{ onChanged(): void }>;
 }
 export type AdapterRegistry = Record<string, EntityAdapter>;
 

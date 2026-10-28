@@ -4,3 +4,9 @@ test-results
 playwright-report
 yarn.lock
 mock/files
+
+.data
+.local
+go.sum
+
+build
