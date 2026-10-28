@@ -203,3 +203,135 @@ test('an expired session removes the open collection', async ({ page }) => {
   await expect(page.getByLabel('Email address')).toBeVisible();
   await expect(page.getByRole('table')).not.toBeVisible();
 });
+
+test('duplicate and extension warnings require explicit confirmation and reset on input changes', async ({
+  page,
+  request,
+}) => {
+  await serverMode(page);
+  const document = (
+    await (await request.get('/api/v1/documents/mock_doc_001')).json()
+  ).data;
+  const forms: string[] = [];
+  await page.route('**/api/v1/documents/mock_doc_001/versions', async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    const form = route.request().postData() || '';
+    forms.push(form);
+    if (!form.includes('name="confirmationToken"'))
+      return route.fulfill({
+        status: 409,
+        json: {
+          error: 'Review upload',
+          code: 'upload_confirmation_required',
+          data: {
+            confirmationToken: 'review-token',
+            duplicateVersions: [
+              { versionId: 'mock_ver_001_001', versionNumber: 1 },
+            ],
+            extensionChange: {
+              first: '.txt',
+              latest: '.txt',
+              incoming: '.pdf',
+            },
+            reuseFile: true,
+          },
+        },
+      });
+    return route.fulfill({
+      status: 201,
+      json: { data: { document, version: document.latestVersion } },
+    });
+  });
+  await page.goto('/documents/mock_doc_001/versions/mock_ver_001_002');
+  await page.getByRole('button', { name: 'Add version', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New version details' });
+  await dialog.getByLabel(/Original file/).setInputFiles({
+    name: 'changed.pdf',
+    mimeType: 'application/pdf',
+    buffer: Buffer.from('duplicate bytes'),
+  });
+  await dialog
+    .getByRole('button', { name: 'Create version', exact: true })
+    .click();
+  await expect(
+    dialog.getByText(/identical content to version 1/)
+  ).toBeVisible();
+  await expect(dialog.getByText(/File extension changed/)).toBeVisible();
+  await expect(
+    dialog.getByText(/reference the existing stored file/)
+  ).toBeVisible();
+  expect(forms).toHaveLength(1);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await dialog.getByLabel('Version name (optional)').fill('Restored original');
+  await expect(
+    dialog.getByRole('button', { name: 'Create version', exact: true })
+  ).toBeVisible();
+  await dialog
+    .getByRole('button', { name: 'Create version', exact: true })
+    .click();
+  await dialog.getByRole('button', { name: 'Add version anyway' }).click();
+  await expect(dialog).not.toBeVisible();
+  expect(forms).toHaveLength(3);
+  expect(forms[2]).toContain('review-token');
+  expect(forms[2]).toContain('Restored original');
+});
+
+test('rename from the library changes current title and preserves original version filename', async ({
+  page,
+  request,
+}) => {
+  await serverMode(page);
+  const original = (
+    await (await request.get('/api/v1/documents/mock_doc_001')).json()
+  ).data;
+  let renamed = false;
+  await page.route('**/api/v1/documents/mock_doc_001', async route => {
+    if (route.request().method() === 'PATCH') {
+      expect(route.request().postDataJSON()).toEqual({
+        title: 'Renamed handbook',
+      });
+      renamed = true;
+    }
+    return route.fulfill({
+      json: {
+        data: {
+          ...original,
+          title: renamed ? 'Renamed handbook' : original.title,
+        },
+      },
+    });
+  });
+  await page.route('**/api/v1/documents/search', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    if (renamed)
+      body.data.items = body.data.items.map((doc: { documentId: string }) =>
+        doc.documentId === original.documentId
+          ? { ...doc, title: 'Renamed handbook' }
+          : doc
+      );
+    return route.fulfill({ json: body });
+  });
+  await page.goto('/documents');
+  await page
+    .getByRole('button', { name: 'Rename Recovery handbook', exact: true })
+    .click();
+  const dialog = page.getByRole('dialog', { name: 'Rename document details' });
+  await dialog.getByLabel('Document title').fill('Renamed handbook');
+  await dialog.getByRole('button', { name: 'Save title' }).click();
+  await page
+    .getByRole('button', { name: /Renamed handbook.*Open document details/ })
+    .click();
+  await expect(
+    page.getByRole('heading', {
+      name: original.latestVersion.snapshot.title,
+      exact: true,
+    })
+  ).toBeVisible();
+  await expect(
+    page.getByText(original.latestVersion.file.name, { exact: true })
+  ).toBeVisible();
+  await expect(
+    page.getByText('Current document title: Renamed handbook')
+  ).toBeVisible();
+});

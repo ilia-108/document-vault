@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
@@ -317,4 +318,44 @@ test('versions may have independent optional names', async ({ page }) => {
   await expect(page.locator('.snapshot-label')).not.toContainText(
     'Editorial review'
   );
+});
+
+test('identical version chip lists all matches beyond the history page and supports keyboard links', async ({
+  page,
+}) => {
+  await page.goto('/documents/mock_doc_005/versions/mock_ver_005_026');
+  await expect(page.getByTestId('expected-checksum')).toBeVisible();
+  const chip = page
+    .getByRole('button', { name: '↔ Identical versions', exact: true })
+    .first();
+  await chip.hover();
+  const popover = page
+    .getByRole('dialog', {
+      name: 'Versions identical to version 26',
+      exact: true,
+    })
+    .first();
+  await expect(popover).toBeVisible();
+  await expect(popover.getByRole('link')).toHaveCount(25);
+  expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+  await expect(
+    popover.getByRole('link', { name: /^Version 1(?:\D|$)/ })
+  ).toHaveAttribute('href', /mock_ver_005_001/);
+  await chip.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(popover.getByRole('link').first()).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(popover).not.toBeVisible();
+  await expect(
+    page.getByRole('dialog', { name: 'Document details', exact: true })
+  ).toBeVisible();
+  await chip.click();
+  await expect(popover).toBeVisible();
+  await popover.getByRole('link', { name: /^Version 1(?:\D|$)/ }).click();
+  await expect(page).toHaveURL(/mock_ver_005_001$/);
+  await expect(
+    page
+      .getByRole('button', { name: '↔ Identical versions', exact: true })
+      .first()
+  ).toBeVisible();
 });

@@ -470,6 +470,7 @@ function ExplorerWorkspace({
                 records={records.items}
                 loading={records.loading}
                 onOpen={openRecord}
+                onChanged={() => setReload(value => value + 1)}
                 query={query}
                 onSort={sort => setQuery({ ...query, sort })}
               />
@@ -509,7 +510,11 @@ function ExplorerWorkspace({
       </div>
       {recordId && (
         <DetailShell title={entity.singularName} onClose={closeDetails}>
-          <entity.Details recordId={recordId} onClose={closeDetails} />
+          <entity.Details
+            recordId={recordId}
+            onClose={closeDetails}
+            onChanged={() => setReload(value => value + 1)}
+          />
         </DetailShell>
       )}
       {filterOpen && (

@@ -19,7 +19,9 @@ The project includes a React/TypeScript frontend, a Go API, email-code authentic
 ## Features
 
 - Search by document metadata, add structured filters, sort results and choose table columns.
-- Preserve each version as a separate immutable file with its own identifier, metadata snapshot and original-file checksum.
+- Preserve each version with its own identifier, immutable metadata snapshot, original filename and original-file checksum. Confirmed identical versions can reference the same stored file.
+- Rename a document in the library while preserving original filenames and captured titles in every version.
+- Require explicit confirmation for duplicate content or an extension differing from the first or latest version. Show every matching version through an interactive chip.
 - Optionally name a version, for example `Editorial review`, independently of the document title and filename.
 - Preview PDF, UTF-8 text and JSON; download other formats as original files.
 - Verify a local file in the browser without uploading it. Downloads also verify the original checksum and size before saving.
@@ -41,7 +43,7 @@ Go API ---------------------------------> Resend (sign-in email)
   v
 Persistent data directory
   state.json         Document metadata, version descriptors, wrapped file keys
-  objects/*.bin      One independently stored file per version
+  objects/*.bin      Immutable files, shared by confirmed identical versions
   auth/sessions.db   SQLite accounts, code hashes and session-token hashes
   auth/session-secret  Generated HMAC secret, unless supplied externally
 ```
@@ -239,7 +241,7 @@ For upgrades:
 3. Preserve `/var/lib/document-vault`, OpenBao data, existing key versions, session secret and service configuration.
 4. Restart the API, reload static hosting as needed, and check an existing encrypted historical version as well as a new upload.
 
-The current metadata format is versioned but has no general-purpose migration framework. Review release changes before upgrades or rollbacks. Keep the previous application artifacts with their corresponding backup.
+The API reads metadata formats 1 and 2 and writes format 2 on the next change. Format 2 supports shared object references; older binaries cannot read it. Restore the corresponding backup when rolling back. The metadata store has no general-purpose migration framework. Review release changes before upgrades or rollbacks. Keep the previous application artifacts with their corresponding backup.
 
 ## Verification
 

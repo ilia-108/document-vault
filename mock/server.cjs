@@ -5,6 +5,25 @@ const { searchDocuments, paginate } = require('./search.cjs');
 
 function createMockServer({ scenario = 'initial' } = {}) {
   const data = createDataset(scenario);
+  for (const entries of data.versions.values())
+    for (const version of entries)
+      version.identicalVersions = entries
+        .filter(
+          other =>
+            other.versionId !== version.versionId &&
+            other.checksum.value === version.checksum.value &&
+            other.file.sizeBytes === version.file.sizeBytes
+        )
+        .sort((a, b) => a.versionNumber - b.versionNumber)
+        .map(({ versionId, versionNumber, versionName }) => ({
+          versionId,
+          versionNumber,
+          ...(versionName ? { versionName } : {}),
+        }));
+  for (const doc of data.documents)
+    doc.latestVersion = data.versions
+      .get(doc.documentId)
+      .find(v => v.versionId === doc.latestVersionId);
   return http.createServer(async (request, response) => {
     const json = (status, body) => {
       response.writeHead(status, {

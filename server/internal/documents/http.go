@@ -21,6 +21,11 @@ func Handler(store *Store, allowedOrigin string) http.Handler {
 	}
 	data := func(w http.ResponseWriter, value any) { respond(w, 200, map[string]any{"data": value}) }
 	fail := func(w http.ResponseWriter, err error) {
+		var review *UploadReviewError
+		if errors.As(err, &review) {
+			respond(w, 409, map[string]any{"error": review.Error(), "code": "upload_confirmation_required", "data": review.Review})
+			return
+		}
 		status, message := 500, "Cannot process the document request"
 		var api *APIError
 		if errors.As(err, &api) {
@@ -120,7 +125,7 @@ func Handler(store *Store, allowedOrigin string) http.Handler {
 				tags = append(tags, tag)
 			}
 		}
-		result, err := store.Upload(r.Context(), r.PathValue("documentId"), Upload{OwnerID: auth.CurrentUser(r.Context()).ID, Actor: auth.CurrentUser(r.Context()).Email, Title: r.FormValue("title"), Owner: r.FormValue("owner"), Tags: tags, VersionName: r.FormValue("versionName"), FileName: filepath.Base(strings.ReplaceAll(header.Filename, "\\", "/")), MediaType: mediaType, Bytes: bytes, Encrypt: encrypt})
+		result, err := store.Upload(r.Context(), r.PathValue("documentId"), Upload{OwnerID: auth.CurrentUser(r.Context()).ID, Actor: auth.CurrentUser(r.Context()).Email, Title: r.FormValue("title"), Owner: r.FormValue("owner"), Tags: tags, VersionName: r.FormValue("versionName"), FileName: filepath.Base(strings.ReplaceAll(header.Filename, "\\", "/")), MediaType: mediaType, Bytes: bytes, ConfirmationToken: r.FormValue("confirmationToken"), Encrypt: encrypt})
 		if err != nil {
 			fail(w, err)
 			return
@@ -129,6 +134,20 @@ func Handler(store *Store, allowedOrigin string) http.Handler {
 	}
 	mux.HandleFunc("POST /api/v1/documents", upload)
 	mux.HandleFunc("POST /api/v1/documents/{documentId}/versions", upload)
+	mux.HandleFunc("PATCH /api/v1/documents/{documentId}", func(w http.ResponseWriter, r *http.Request) {
+		var input struct {
+			Title string `json:"title"`
+		}
+		if !decode(w, r, &input) {
+			return
+		}
+		value, err := store.Rename(auth.CurrentUser(r.Context()).ID, r.PathValue("documentId"), input.Title)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		data(w, value)
+	})
 	mux.HandleFunc("GET /api/v1/documents/{documentId}", func(w http.ResponseWriter, r *http.Request) {
 		value, err := store.Document(r.PathValue("documentId"))
 		if err != nil {

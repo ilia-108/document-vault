@@ -1,4 +1,10 @@
+export interface VersionReference {
+  versionId: string;
+  versionNumber: number;
+  versionName?: string;
+}
 export interface DocumentVersion {
+  identicalVersions?: VersionReference[];
   versionId: string;
   documentId: string;
   versionNumber: number;

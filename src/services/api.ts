@@ -6,7 +6,9 @@ declare global {
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    public data?: unknown,
+    public code?: string
   ) {
     super(message);
     this.name = 'ApiError';
@@ -42,7 +44,9 @@ async function request(
     const error = await response.json().catch(() => null);
     throw new ApiError(
       response.status,
-      error?.error || `Request failed (${response.status})`
+      error?.error || `Request failed (${response.status})`,
+      error?.data,
+      error?.code
     );
   }
   return response;

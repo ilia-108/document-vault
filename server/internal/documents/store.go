@@ -1,6 +1,7 @@
 package documents
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -40,10 +41,10 @@ func OpenStore(root string, provider KeyWrapper) (*Store, error) {
 		lock.Close()
 		return nil, errors.New("data directory is already in use")
 	}
-	s := &Store{root: root, provider: provider, lock: lock, state: diskState{FormatVersion: 1, Settings: EncryptionSettings{EncryptByDefault: true}, Documents: map[string]Document{}, Versions: map[string][]StoredVersion{}}}
+	s := &Store{root: root, provider: provider, lock: lock, state: diskState{FormatVersion: 2, Settings: EncryptionSettings{EncryptByDefault: true}, Documents: map[string]Document{}, Versions: map[string][]StoredVersion{}}}
 	content, err := os.ReadFile(filepath.Join(root, "state.json"))
 	if err == nil {
-		if json.Unmarshal(content, &s.state) != nil || s.state.FormatVersion != 1 || s.state.Documents == nil || s.state.Versions == nil {
+		if json.Unmarshal(content, &s.state) != nil || (s.state.FormatVersion != 1 && s.state.FormatVersion != 2) || s.state.Documents == nil || s.state.Versions == nil {
 			s.Close()
 			return nil, errors.New("invalid document metadata store")
 		}
@@ -69,6 +70,7 @@ func cloneState(state diskState) diskState {
 	return result
 }
 func (s *Store) save(state diskState) error {
+	state.FormatVersion = 2
 	bytes, err := json.MarshalIndent(state, "", "  ")
 	if err != nil {
 		return err
@@ -187,40 +189,80 @@ func (s *Store) Upload(ctx context.Context, documentID string, upload Upload) (U
 	if err != nil {
 		return empty, err
 	}
+	checksum := digest(upload.Bytes)
+	review, reusable, err := reviewUpload(s.state, document, upload, encrypted, checksum)
+	if err != nil {
+		return empty, err
+	}
+	needsReview := len(review.DuplicateVersions) > 0 || review.ExtensionChange != nil
+	if (needsReview && upload.ConfirmationToken != review.ConfirmationToken) || (upload.ConfirmationToken != "" && upload.ConfirmationToken != review.ConfirmationToken) {
+		return empty, &UploadReviewError{review}
+	}
 	versionID, err := newID("ver_")
 	if err != nil {
 		return empty, err
 	}
-	version := Version{VersionID: versionID, DocumentID: documentID, VersionNumber: document.VersionCount + 1, VersionName: upload.VersionName, CapturedAt: time.Now().UTC().Unix(), CapturedBy: upload.Actor, File: FileInfo{upload.FileName, upload.MediaType, int64(len(upload.Bytes))}, Checksum: Checksum{"sha256", digest(upload.Bytes)}, Snapshot: Snapshot{Title: document.Title, Author: document.Owner, Tags: document.Tags, Source: "Document Vault"}, Encryption: EncryptionInfo{Enabled: encrypted}}
-	stored := StoredVersion{Version: version, ObjectName: versionID + ".bin"}
-	bytes := upload.Bytes
+	version := Version{VersionID: versionID, DocumentID: documentID, VersionNumber: document.VersionCount + 1, VersionName: upload.VersionName, CapturedAt: time.Now().UTC().Unix(), CapturedBy: upload.Actor, File: FileInfo{upload.FileName, upload.MediaType, int64(len(upload.Bytes))}, Checksum: Checksum{"sha256", checksum}, Snapshot: Snapshot{Title: document.Title, Author: document.Owner, Tags: document.Tags, Source: "Document Vault"}, Encryption: EncryptionInfo{Enabled: encrypted}}
 	if encrypted {
 		version.Encryption.Algorithm = "AES-256-GCM"
 		version.Encryption.Provider = "openbao-transit"
-		stored.Version = version
-		bytes, stored.WrappedKey, err = seal(ctx, s.provider, upload.Bytes, version)
+	}
+	stored := StoredVersion{Version: version, ObjectName: versionID + ".bin"}
+	createdObject := ""
+	if reusable != nil {
+		original, err := resolveObject(s.state, documentID, *reusable)
 		if err != nil {
 			return empty, err
 		}
-		stored.KeyName = s.provider.KeyName()
+		content, err := s.loadObject(ctx, *reusable, original)
+		if err != nil {
+			return empty, err
+		}
+		equal := bytes.Equal(content, upload.Bytes)
+		clear(content)
+		if !equal {
+			return empty, ErrIntegrity
+		}
+		stored.ObjectName = original.ObjectName
+		stored.StorageChecksum = original.StorageChecksum
+		stored.KeyName = original.KeyName
+		stored.WrappedKey = original.WrappedKey
+		stored.ContentVersionID = original.Version.VersionID
+		if encrypted {
+			stored.MetadataMAC, err = authenticateReference(ctx, s.provider, original, version)
+			if err != nil {
+				return empty, err
+			}
+		}
+	} else {
+		content := upload.Bytes
+		if encrypted {
+			content, stored.WrappedKey, err = seal(ctx, s.provider, upload.Bytes, version)
+			if err != nil {
+				return empty, err
+			}
+			stored.KeyName = s.provider.KeyName()
+		}
+		stored.StorageChecksum = digest(content)
+		objectPath := filepath.Join(s.root, "objects", stored.ObjectName)
+		file, err := os.OpenFile(objectPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			return empty, err
+		}
+		if _, err = file.Write(content); err == nil {
+			err = file.Sync()
+		}
+		closeErr := file.Close()
+		if err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			_ = os.Remove(objectPath)
+			return empty, err
+		}
+		createdObject = objectPath
 	}
-	stored.StorageChecksum = digest(bytes)
-	objectPath := filepath.Join(s.root, "objects", stored.ObjectName)
-	file, err := os.OpenFile(objectPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-	if err != nil {
-		return empty, err
-	}
-	if _, err = file.Write(bytes); err == nil {
-		err = file.Sync()
-	}
-	closeErr := file.Close()
-	if err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		_ = os.Remove(objectPath)
-		return empty, err
-	}
+
 	next := cloneState(s.state)
 	document.VersionCount = version.VersionNumber
 	document.LatestVersionID = versionID
@@ -229,10 +271,12 @@ func (s *Store) Upload(ctx context.Context, documentID string, upload Upload) (U
 	next.Documents[documentID] = document
 	next.Versions[documentID] = append(next.Versions[documentID], stored)
 	if err = s.save(next); err != nil {
-		_ = os.Remove(objectPath)
+		if createdObject != "" {
+			_ = os.Remove(createdObject)
+		}
 		return empty, err
 	}
-	return UploadResult{document, version}, nil
+	return UploadResult{documentView(s.state, document), versionView(s.state, version)}, nil
 }
 func (s *Store) Document(id string) (Document, error) {
 	s.mu.RLock()
@@ -241,7 +285,7 @@ func (s *Store) Document(id string) (Document, error) {
 	if !ok {
 		return Document{}, apiError(404, "Document not found")
 	}
-	return document, nil
+	return documentView(s.state, document), nil
 }
 func (s *Store) Documents(ownerID string) []Document {
 	s.mu.RLock()
@@ -249,7 +293,7 @@ func (s *Store) Documents(ownerID string) []Document {
 	result := make([]Document, 0, len(s.state.Documents))
 	for _, document := range s.state.Documents {
 		if document.OwnerID == ownerID {
-			result = append(result, document)
+			result = append(result, documentView(s.state, document))
 		}
 	}
 	return result
@@ -263,7 +307,7 @@ func (s *Store) History(id string) ([]Version, error) {
 	entries := s.state.Versions[id]
 	result := make([]Version, 0, len(entries))
 	for index := len(entries) - 1; index >= 0; index-- {
-		result = append(result, entries[index].Version)
+		result = append(result, versionView(s.state, entries[index].Version))
 	}
 	return result, nil
 }
@@ -279,32 +323,56 @@ func (s *Store) storedVersion(documentID, versionID string) (StoredVersion, erro
 }
 func (s *Store) Version(documentID, versionID string) (Version, error) {
 	stored, err := s.storedVersion(documentID, versionID)
-	return stored.Version, err
+	if err != nil {
+		return Version{}, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return versionView(s.state, stored.Version), nil
 }
 func (s *Store) Content(ctx context.Context, documentID, versionID string) ([]byte, Version, error) {
-	stored, err := s.storedVersion(documentID, versionID)
+	s.mu.RLock()
+	var stored StoredVersion
+	found := false
+	for _, item := range s.state.Versions[documentID] {
+		if item.Version.VersionID == versionID {
+			stored = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		s.mu.RUnlock()
+		return nil, Version{}, apiError(404, "Version not found")
+	}
+	original, err := resolveObject(s.state, documentID, stored)
+	s.mu.RUnlock()
 	if err != nil {
 		return nil, Version{}, err
 	}
-	if filepath.Base(stored.ObjectName) != stored.ObjectName || stored.ObjectName == "." {
-		return nil, Version{}, ErrIntegrity
+	content, err := s.loadObject(ctx, stored, original)
+	return content, stored.Version, err
+}
+func (s *Store) loadObject(ctx context.Context, stored, original StoredVersion) ([]byte, error) {
+	if filepath.Base(original.ObjectName) != original.ObjectName || original.ObjectName == "." {
+		return nil, ErrIntegrity
 	}
-	bytes, err := os.ReadFile(filepath.Join(s.root, "objects", stored.ObjectName))
+	content, err := os.ReadFile(filepath.Join(s.root, "objects", original.ObjectName))
 	if err != nil {
-		return nil, Version{}, fmt.Errorf("read stored object: %w", err)
+		return nil, fmt.Errorf("read stored object: %w", err)
 	}
-	if digest(bytes) != stored.StorageChecksum {
-		return nil, Version{}, ErrIntegrity
+	if digest(content) != original.StorageChecksum {
+		return nil, ErrIntegrity
 	}
-	if stored.Version.Encryption.Enabled {
-		bytes, err = unseal(ctx, s.provider, bytes, stored)
+	if original.Version.Encryption.Enabled {
+		content, err = unseal(ctx, s.provider, content, original, stored)
 		if err != nil {
-			return nil, Version{}, err
+			return nil, err
 		}
 	}
-	if int64(len(bytes)) != stored.Version.File.SizeBytes || digest(bytes) != stored.Version.Checksum.Value {
-		clear(bytes)
-		return nil, Version{}, ErrIntegrity
+	if int64(len(content)) != stored.Version.File.SizeBytes || digest(content) != stored.Version.Checksum.Value {
+		clear(content)
+		return nil, ErrIntegrity
 	}
-	return bytes, stored.Version, nil
+	return content, nil
 }

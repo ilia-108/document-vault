@@ -1,6 +1,6 @@
 # Go API and OpenBao
 
-The Go service implements authenticated document upload, immutable versions, search, original-file downloads and per-account encryption settings. It uses SQLite for email codes and sessions, an atomic JSON metadata store for documents, and one immutable disk object per version. The document store is intended for a single server process; its data directory is exclusively locked.
+The Go service implements authenticated document upload, immutable versions, search, original-file downloads and per-account encryption settings. It uses SQLite for email codes and sessions, an atomic JSON metadata store for documents, and immutable disk objects with explicit references for confirmed duplicates. The document store is intended for a single server process; its data directory is exclusively locked.
 
 ## Local setup
 
@@ -45,12 +45,22 @@ Codes contain six random digits, expire after ten minutes and permit at most fiv
 - Default: encrypt new files; individual upload choices are disabled.
 - A separate setting permits individual encryption choices.
 - Once a document receives any encrypted version, every subsequent version must be encrypted, regardless of defaults or client requests. Earlier versions are preserved as originally stored.
-- Every encrypted version uses a fresh random AES-256-GCM key and nonce. OpenBao Transit protects the version key using the application's named key. Only the wrapped key is stored with private metadata; no plaintext file key is persisted or returned to the browser.
+- Every new encrypted object uses a fresh random AES-256-GCM key and nonce. Confirmed identical versions in the same document reuse a compatible object and its wrapped key. OpenBao Transit protects the version key using the application's named key. Only the wrapped key is stored with private metadata; no plaintext file key is persisted or returned to the browser.
 - Version identity and snapshot metadata are authenticated as additional data. The metadata itself, including filenames, remains readable in the private metadata store.
 - The original checksum covers plaintext original bytes. A separate internal checksum protects the stored object. Downloads verify the stored object, authenticate/decrypt it, verify the original checksum and size, then return those exact bytes.
 - An unavailable or sealed OpenBao causes encrypted operations to fail closed. There is no fallback to saving plaintext.
 
 The browser never receives encryption keys. Uploads are limited to 25 MiB and buffered in memory; plaintext multipart data is not staged to disk. This first implementation does not provide large-file streaming, collaborative sharing, a multi-node metadata database, or public deployment infrastructure.
+
+## Upload review and current titles
+
+Appending a version returns HTTP 409 with `code: upload_confirmation_required` and `data` containing a `confirmationToken`, every `duplicateVersions` reference, an optional `extensionChange` (first/latest/incoming), and `reuseFile`. Resubmit the same multipart upload with `confirmationToken` only after explicit user consent. A changed upload, document title, history or effective encryption choice requires a fresh confirmation. Extensions are case-insensitive; no extension is represented by an empty string.
+
+Duplicates are detected within one document using original SHA-256 and byte size. Reuse also verifies the existing physical file and compares its original bytes. Encryption policy takes precedence: an encrypted version never references plaintext; if necessary, a new encrypted object is created. References point directly to the original stored version. Encrypted reference metadata is authenticated with HMAC-SHA-256 using an HKDF-derived key from the original file key, with a separate domain. Downloads validate both the source and reference metadata. Dynamic `identicalVersions` API links do not alter immutable snapshots or their authenticated data.
+
+`PATCH /api/v1/documents/{id}` with `{ "title": "New title" }` updates only the current document title. Original filenames and existing snapshot titles remain unchanged. New snapshots capture the current title. Ownership checks apply to uploads, reviews, renames and downloads.
+
+Metadata format 2 supports these references. Format 1 remains readable; the next write upgrades metadata to format 2. Back up the full store before upgrading; older binaries require restoring their corresponding format 1 backup.
 
 ## Configuration
 

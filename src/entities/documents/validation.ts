@@ -44,6 +44,22 @@ export function parseVersion(value: unknown): DocumentVersion {
       typeof snapshot.sourceRevision !== 'string')
   )
     throw new Error('Invalid immutable version metadata');
+  if (
+    version.identicalVersions !== undefined &&
+    (!Array.isArray(version.identicalVersions) ||
+      version.identicalVersions.some(item => {
+        const ref = object(item);
+        return (
+          typeof ref.versionId !== 'string' ||
+          !ref.versionId ||
+          ref.versionId === version.versionId ||
+          !Number.isSafeInteger(ref.versionNumber) ||
+          Number(ref.versionNumber) < 1 ||
+          (ref.versionName !== undefined && typeof ref.versionName !== 'string')
+        );
+      }))
+  )
+    throw new Error('Invalid identical version references');
   return value as DocumentVersion;
 }
 export function parseDocument(value: unknown): DocumentSummary {

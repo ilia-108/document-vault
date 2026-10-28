@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { DetailShell } from '@/explorer/ExplorerLayout';
 import { Icon } from '@/components/Icon';
-import { errorMessage, requestJson } from '@/services/api';
+import { ApiError, errorMessage, requestJson } from '@/services/api';
 import { object, parseDocument, parseVersion } from './validation';
 import type { DocumentSummary, DocumentVersion } from './types';
 
@@ -188,6 +188,40 @@ function EncryptionDialog({ onClose }: { onClose(): void }) {
     </DetailShell>
   );
 }
+interface UploadReview {
+  confirmationToken: string;
+  duplicateVersions: {
+    versionId: string;
+    versionNumber: number;
+    versionName?: string;
+  }[];
+  extensionChange?: { first: string; latest: string; incoming: string };
+  reuseFile: boolean;
+}
+function parseReview(value: unknown): UploadReview {
+  const review = object(value);
+  if (
+    typeof review.confirmationToken !== 'string' ||
+    !Array.isArray(review.duplicateVersions) ||
+    review.duplicateVersions.some(value => {
+      const ref = object(value);
+      return (
+        typeof ref.versionId !== 'string' ||
+        !ref.versionId ||
+        !Number.isSafeInteger(ref.versionNumber) ||
+        Number(ref.versionNumber) < 1 ||
+        (ref.versionName !== undefined && typeof ref.versionName !== 'string')
+      );
+    }) ||
+    (review.extensionChange !== undefined &&
+      !['first', 'latest', 'incoming'].every(
+        key => typeof object(review.extensionChange)[key] === 'string'
+      )) ||
+    typeof review.reuseFile !== 'boolean'
+  )
+    throw new Error('Invalid upload confirmation');
+  return review as unknown as UploadReview;
+}
 function UploadDialog({
   document,
   onClose,
@@ -207,6 +241,7 @@ function UploadDialog({
   const [encrypted, setEncrypted] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [review, setReview] = useState<UploadReview | null>(null);
   const required = document?.encryptionRequired === true;
   useEffect(() => {
     const controller = new AbortController();
@@ -243,6 +278,8 @@ function UploadDialog({
             try {
               const body = new FormData();
               body.append('file', file);
+              if (review)
+                body.append('confirmationToken', review.confirmationToken);
               if (!document) body.append('title', title.trim());
               if (versionName.trim())
                 body.append('versionName', versionName.trim());
@@ -263,70 +300,120 @@ function UploadDialog({
               );
               onCreated(result);
             } catch (error) {
-              setError(errorMessage(error));
+              if (
+                error instanceof ApiError &&
+                error.code === 'upload_confirmation_required'
+              ) {
+                try {
+                  setReview(parseReview(error.data));
+                } catch (parseError) {
+                  setError(errorMessage(parseError));
+                }
+              } else setError(errorMessage(error));
             } finally {
               setBusy(false);
             }
           }}
         >
-          {!document && (
+          <fieldset
+            disabled={busy}
+            className='upload-fields'
+            onChange={() => setReview(null)}
+          >
+            {!document && (
+              <label>
+                Document title
+                <input
+                  required
+                  maxLength={300}
+                  value={title}
+                  onChange={event => setTitle(event.target.value)}
+                />
+              </label>
+            )}
             <label>
-              Document title
+              Original file
               <input
+                type='file'
                 required
-                maxLength={300}
-                value={title}
-                onChange={event => setTitle(event.target.value)}
+                disabled={busy}
+                onChange={event => {
+                  const selected = event.target.files?.[0] || null;
+                  setFile(selected);
+                  if (selected && !title)
+                    setTitle(selected.name.replace(/\.[^.]+$/, ''));
+                }}
               />
+              <span className='subtle'>
+                Up to 25 MiB. Confirmed identical versions can share a stored
+                file.
+              </span>
             </label>
-          )}
-          <label>
-            Original file
-            <input
-              type='file'
-              required
-              disabled={busy}
-              onChange={event => {
-                const selected = event.target.files?.[0] || null;
-                setFile(selected);
-                if (selected && !title)
-                  setTitle(selected.name.replace(/\.[^.]+$/, ''));
-              }}
-            />
-            <span className='subtle'>
-              Up to 25 MiB. Each version is stored as a separate file.
-            </span>
-          </label>
-          <label>
-            Version name (optional)
-            <input
-              maxLength={200}
-              value={versionName}
-              onChange={event => setVersionName(event.target.value)}
-              placeholder='For example: Approved for publication'
-            />
-          </label>
-          {required ? (
-            <div className='development-note'>
-              <Icon name='shield' size={16} />
-              Encryption is required for every new version of this document.
-            </div>
-          ) : settings?.allowPerFileOverride ? (
-            <label className='setting-checkbox'>
+            <label>
+              Version name (optional)
               <input
-                type='checkbox'
-                checked={encrypted}
-                onChange={event => setEncrypted(event.target.checked)}
+                maxLength={200}
+                value={versionName}
+                onChange={event => setVersionName(event.target.value)}
+                placeholder='For example: Approved for publication'
               />
-              <span>Encrypt this file</span>
             </label>
-          ) : (
-            settings && (
-              <p className='subtle'>
-                Encryption: {settings.encryptByDefault ? 'enabled' : 'disabled'}{' '}
-                by workspace settings.
-              </p>
-            )
+            {required ? (
+              <div className='development-note'>
+                <Icon name='shield' size={16} />
+                Encryption is required for every new version of this document.
+              </div>
+            ) : settings?.allowPerFileOverride ? (
+              <label className='setting-checkbox'>
+                <input
+                  type='checkbox'
+                  checked={encrypted}
+                  onChange={event => setEncrypted(event.target.checked)}
+                />
+                <span>Encrypt this file</span>
+              </label>
+            ) : (
+              settings && (
+                <p className='subtle'>
+                  Encryption:{' '}
+                  {settings.encryptByDefault ? 'enabled' : 'disabled'} by
+                  workspace settings.
+                </p>
+              )
+            )}
+          </fieldset>
+          {review && (
+            <div className='upload-review' role='alert'>
+              <h3>Review this version</h3>
+              {review.duplicateVersions.length > 0 && (
+                <>
+                  <p>
+                    This file has identical content to{' '}
+                    {review.duplicateVersions
+                      .map(
+                        v =>
+                          `version ${v.versionNumber}${v.versionName ? ` (${v.versionName})` : ''}`
+                      )
+                      .join(', ')}
+                    .
+                  </p>
+                  <p>
+                    {review.reuseFile
+                      ? 'A new version will reference the existing stored file.'
+                      : 'Encryption requires a separate encrypted copy of this content.'}
+                  </p>
+                </>
+              )}
+              {review.extensionChange && (
+                <p>
+                  File extension changed: first version{' '}
+                  {review.extensionChange.first || '(none)'}, latest version{' '}
+                  {review.extensionChange.latest || '(none)'}, incoming file{' '}
+                  {review.extensionChange.incoming || '(none)'}.
+                </p>
+              )}
+              <p>Add this version only if these changes are intended.</p>
+            </div>
           )}
           {error && (
             <p className='error-text' role='alert'>
@@ -340,9 +427,11 @@ function UploadDialog({
           >
             {busy
               ? 'Preserving file…'
-              : document
-                ? 'Create version'
-                : 'Create document'}
+              : review
+                ? 'Add version anyway'
+                : document
+                  ? 'Create version'
+                  : 'Create document'}
           </button>
         </form>
       </div>

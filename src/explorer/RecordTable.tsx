@@ -30,7 +30,9 @@ export function RecordTable({
   onOpen,
   query,
   onSort,
+  onChanged,
 }: {
+  onChanged(): void;
   entity: EntityDefinition;
   schema: EntitySchema;
   columns: string[];
@@ -157,23 +159,32 @@ export function RecordTable({
                         )}
                       >
                         {index === 0 ? (
-                          <button
-                            className='record-title'
-                            onClick={() => onOpen(record.key)}
-                          >
-                            <span className='file-icon'>
-                              <Icon name='document' size={19} />
-                            </span>
-                            <span>
-                              {cellValue(
-                                field,
-                                getValueByPath(record.data, field.name)
-                              )}
-                              <span className='record-subtitle'>
-                                Open {entity.singularName.toLowerCase()} details
+                          <div className='record-title-actions'>
+                            <button
+                              className='record-title'
+                              onClick={() => onOpen(record.key)}
+                            >
+                              <span className='file-icon'>
+                                <Icon name='document' size={19} />
                               </span>
-                            </span>
-                          </button>
+                              <span>
+                                {cellValue(
+                                  field,
+                                  getValueByPath(record.data, field.name)
+                                )}
+                                <span className='record-subtitle'>
+                                  Open {entity.singularName.toLowerCase()}{' '}
+                                  details
+                                </span>
+                              </span>
+                            </button>
+                            {entity.RowActions && (
+                              <entity.RowActions
+                                record={record}
+                                onChanged={onChanged}
+                              />
+                            )}
+                          </div>
                         ) : field.type === 'checksum' ? (
                           <code className='checksum-cell'>
                             {cellValue(

@@ -47,6 +47,7 @@ export interface EntityAdapter {
 export interface DetailProps {
   recordId: string;
   onClose(): void;
+  onChanged(): void;
 }
 export interface EntityDefinition {
   id: string;
@@ -61,6 +62,7 @@ export interface EntityDefinition {
   collections: { label: string; filters: SearchFilter[] }[];
   adapter: EntityAdapter;
   Details: ComponentType<DetailProps>;
+  RowActions?: ComponentType<{ record: EntityRecord; onChanged(): void }>;
   Actions?: ComponentType<{ onChanged(): void }>;
 }
 export type AdapterRegistry = Record<string, EntityAdapter>;

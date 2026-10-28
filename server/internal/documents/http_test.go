@@ -111,6 +111,24 @@ func TestAccountsCannotAccessEachOthersFilesOrSettings(t *testing.T) {
 	if uploadAPI(t, handler, prefix+"/versions", alice, map[string]string{"encrypt": "false"}).Code != 409 {
 		t.Fatal("encryption lock bypassed through HTTP")
 	}
+	if callAPI(handler, "PATCH", prefix, `{"title":"Foreign"}`, bob).Code != 404 {
+		t.Fatal("foreign rename accepted")
+	}
+	if callAPI(handler, "PATCH", prefix, `{"title":"New title"}`, alice).Code != 200 {
+		t.Fatal("rename failed")
+	}
+	duplicate := uploadAPI(t, handler, prefix+"/versions", alice, map[string]string{})
+	var review struct {
+		Code string       `json:"code"`
+		Data UploadReview `json:"data"`
+	}
+	if duplicate.Code != 409 || json.Unmarshal(duplicate.Body.Bytes(), &review) != nil || review.Code != "upload_confirmation_required" || len(review.Data.DuplicateVersions) != 1 {
+		t.Fatal("missing HTTP review", duplicate.Body)
+	}
+	confirmed := uploadAPI(t, handler, prefix+"/versions", alice, map[string]string{"confirmationToken": review.Data.ConfirmationToken})
+	if confirmed.Code != 201 {
+		t.Fatal("HTTP confirmation failed", confirmed.Body)
+	}
 	content := callAPI(handler, "GET", prefix+"/versions/"+version.VersionID+"/content", "", alice)
 	if content.Code != 200 || !bytes.Equal(content.Body.Bytes(), []byte("original upload bytes\x00\r\n")) {
 		t.Fatal("downloaded bytes differ", content.Code)

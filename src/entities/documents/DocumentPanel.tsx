@@ -18,9 +18,11 @@ import type { DetailProps } from '@/explorer/types';
 import { getVersionContent } from './api';
 import { verifyBytes } from './checksum';
 import type { DocumentVersion } from './types';
+import { RenameDocument } from './RenameDocument';
+import { IdenticalVersions } from './IdenticalVersions';
 import { UploadVersionButton } from './DocumentActions';
 
-export function DocumentPanel({ recordId }: DetailProps) {
+export function DocumentPanel({ recordId, onChanged }: DetailProps) {
   const { versionId } = useParams();
   const dispatch = useAppDispatch();
   const state = useAppSelector(selectDocumentVersions);
@@ -34,7 +36,7 @@ export function DocumentPanel({ recordId }: DetailProps) {
   useEffect(() => {
     const task = dispatch(loadHistory({ documentId: recordId }));
     return () => task.abort();
-  }, [dispatch, recordId]);
+  }, [dispatch, recordId, retry]);
   useEffect(() => {
     if (!versionId && state.version?.documentId === recordId)
       navigate(
@@ -103,6 +105,7 @@ export function DocumentPanel({ recordId }: DetailProps) {
               <span className='historic-badge'>PRESERVED</span>
             )}
           </div>
+          <IdenticalVersions version={version} />
           {state.document &&
             state.document.title !== version.snapshot.title && (
               <p className='rename-note'>
@@ -125,9 +128,17 @@ export function DocumentPanel({ recordId }: DetailProps) {
       )}
       {state.document && (
         <div className='version-upload'>
+          <RenameDocument
+            document={state.document}
+            onChanged={() => {
+              onChanged();
+              setRetry(value => value + 1);
+            }}
+          />
           <UploadVersionButton
             document={state.document}
             onCreated={created => {
+              onChanged();
               void dispatch(loadHistory({ documentId: recordId }));
               navigate(`/documents/${recordId}/versions/${created.versionId}`);
             }}
@@ -141,36 +152,39 @@ export function DocumentPanel({ recordId }: DetailProps) {
         </div>
         {state.historyDocumentId === recordId &&
           state.history.map(item => (
-            <button
-              className={`history-item ${item.versionId === versionId ? 'selected' : ''}`}
-              key={item.versionId}
-              aria-current={item.versionId === versionId ? 'true' : undefined}
-              onClick={() =>
-                navigate({
-                  pathname: `/documents/${encodeURIComponent(recordId)}/versions/${encodeURIComponent(item.versionId)}`,
-                  search: location.search,
-                })
-              }
-            >
-              <span className='history-dot' />
-              <div>
-                <strong>
-                  Version {item.versionNumber}
-                  {item.versionName && ` — ${item.versionName}`}
-                  {item.versionId === state.document?.latestVersionId && (
-                    <span className='latest-badge'>LATEST</span>
-                  )}
-                </strong>
-                <span>
-                  {formatDateTime(item.capturedAt)} · {item.capturedBy}
+            <div key={item.versionId} className='history-entry'>
+              <button
+                className={`history-item ${item.versionId === versionId ? 'selected' : ''}`}
+                key={item.versionId}
+                aria-current={item.versionId === versionId ? 'true' : undefined}
+                onClick={() =>
+                  navigate({
+                    pathname: `/documents/${encodeURIComponent(recordId)}/versions/${encodeURIComponent(item.versionId)}`,
+                    search: location.search,
+                  })
+                }
+              >
+                <span className='history-dot' />
+                <div>
+                  <strong>
+                    Version {item.versionNumber}
+                    {item.versionName && ` — ${item.versionName}`}
+                    {item.versionId === state.document?.latestVersionId && (
+                      <span className='latest-badge'>LATEST</span>
+                    )}
+                  </strong>
+                  <span>
+                    {formatDateTime(item.capturedAt)} · {item.capturedBy}
+                  </span>
+                  <code>{item.checksum.value.slice(0, 16)}…</code>
+                </div>
+                <span className='history-size'>
+                  {formatBytes(item.file.sizeBytes)}
                 </span>
-                <code>{item.checksum.value.slice(0, 16)}…</code>
-              </div>
-              <span className='history-size'>
-                {formatBytes(item.file.sizeBytes)}
-              </span>
-              <Icon name='chevron' size={14} />
-            </button>
+                <Icon name='chevron' size={14} />
+              </button>
+              <IdenticalVersions version={item} />
+            </div>
           ))}
         {state.historyLoading && (
           <p className='subtle' role='status'>
