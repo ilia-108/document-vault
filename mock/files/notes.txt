@@ -1,0 +1,6 @@
+# Editorial guidelines
+
+Keep documentation concise and reproducible.
+Use stable links to reference a specific version.
+
+Résumé — 日本語 — documentation

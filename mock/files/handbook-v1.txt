@@ -1,0 +1,5 @@
+# Recovery handbook
+
+Revision 1
+Restore the most recent verified backup.
+Owner: Platform team

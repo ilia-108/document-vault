@@ -1,0 +1,7 @@
+# Recovery handbook
+
+Revision 2
+1. Verify the backup checksum.
+2. Restore into an isolated environment.
+3. Validate the restored data.
+Owner: Platform team

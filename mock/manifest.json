@@ -1,0 +1,34 @@
+{
+  "handbook-v1.txt": {
+    "sizeBytes": 94,
+    "sha256": "68d9e977e133a060b85a9046c0b0ea1bba9bd0fb84c27f86f609df0c439c97f8"
+  },
+  "handbook-v2.txt": {
+    "sizeBytes": 156,
+    "sha256": "0470682339263e3fd081a035d444e901e8a521ae36e739d58a7b5807517ad51e"
+  },
+  "handbook-v3.txt": {
+    "sizeBytes": 92,
+    "sha256": "e0466ca4381300001946fc7d0ab05e5ac1972c0b0f156bd583e9595fbf758094"
+  },
+  "configuration.json": {
+    "sizeBytes": 92,
+    "sha256": "71e49051e450c86754e7db156433990f853c070587b5eecc63c4f5c0d4fef03a"
+  },
+  "notes.txt": {
+    "sizeBytes": 161,
+    "sha256": "430f24e01fd65ae4c95746d46ab577777009c76df8cbc6629da7465e85299a9d"
+  },
+  "empty.txt": {
+    "sizeBytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "archive.bin": {
+    "sizeBytes": 8,
+    "sha256": "826e5bcfbbd4a50471731743f4b289c9998bcc4bd35679da68774e32acf18ffa"
+  },
+  "overview.pdf": {
+    "sizeBytes": 709,
+    "sha256": "158ba17a88a980e4beb5453e3fd6b0a642a4633753471396bff8e3d0d670e9e7"
+  }
+}
